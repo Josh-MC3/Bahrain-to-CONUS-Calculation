@@ -1,12 +1,17 @@
 // All constants verified against the member's May 2026 LES,
 // the 2026 DFAS basic pay table, and the 2026 BAH-without-dependents table.
 // No invented exemptions. Leave sellback is taxable regardless of CZTE status.
+//
+// CZTE departure-month rule: a month in which the member departs the zone
+// under orders still qualifies for CZTE on base pay, UNLESS the absence
+// spans that entire calendar month. COLA/HDP/IDP still require physical
+// presence and stop the day the member leaves, independent of tax status.
 
 const BASE_PAY = 7654.33;
 const BAS = 328.48;
 const BAH_BAHRAIN = 2939.54;
 const BAH_CLT = 2433.00;
-const COLA = 100.00 + 225.00 + 1086.12; // HDP + IDP + COLA
+const COLA_HDP_IDP = 1086.12 + 100.00 + 225.00;
 const MIE_JAX = 68.00;
 
 const SGLI = 26.00;
@@ -21,20 +26,25 @@ function fmt(n) {
 }
 
 function bahrainMonthNet() {
-  const gross = BASE_PAY + BAS + BAH_BAHRAIN + COLA;
+  // Full month physically present: CZTE applies, COLA/HDP/IDP paid.
+  const gross = BASE_PAY + BAS + BAH_BAHRAIN + COLA_HDP_IDP;
   const fica = BASE_PAY * FICA_RATE;
-  return gross - fica - SGLI; // CZTE: no federal tax
+  return gross - fica - SGLI;
 }
 
-function jaxMonthNet(perDiemDays) {
-  const perDiem = MIE_JAX * perDiemDays;
+function departureMonthNet(jaxDays) {
+  // Month where the member departs Bahrain under orders mid-month.
+  // CZTE still applies to base pay (departure-month rule) as long as
+  // this isn't a full calendar month spent entirely absent.
+  // COLA/HDP/IDP stop the day they leave Bahrain - not paid for TAD days.
+  const perDiem = MIE_JAX * jaxDays;
   const gross = BASE_PAY + BAS + BAH_BAHRAIN + perDiem;
-  const fed = BASE_PAY * EFF_FED_RATE;
   const fica = BASE_PAY * FICA_RATE;
-  return gross - fed - fica - SGLI;
+  return gross - fica - SGLI; // no federal tax - departure-month rule
 }
 
-function ncMonthNet() {
+function fullAbsentMonthNet_NC() {
+  // A full calendar month entirely outside the zone: CZTE no longer applies.
   const gross = BASE_PAY + BAS + BAH_CLT;
   const fed = BASE_PAY * EFF_FED_RATE;
   const fica = BASE_PAY * FICA_RATE;
@@ -42,8 +52,7 @@ function ncMonthNet() {
 }
 
 const BAHRAIN_NET = bahrainMonthNet();
-const JAX_NET_FULL_MONTH = jaxMonthNet(30);
-const NC_NET_FULL_MONTH = ncMonthNet();
+const NC_NET_FULL_MONTH = fullAbsentMonthNet_NC();
 
 const root = document.getElementById('calculator-root');
 
@@ -54,9 +63,9 @@ root.innerHTML = `
     <span class="calc-val" id="out-sellback">20</span>
   </div>
   <div class="calc-row">
-    <label for="sl-jaxdays">Days in Jacksonville TAD (Option 2/3)</label>
-    <input type="range" id="sl-jaxdays" min="0" max="30" step="1" value="21">
-    <span class="calc-val" id="out-jaxdays">21</span>
+    <label for="sl-jaxdays">Days in Jacksonville TAD during the departure month</label>
+    <input type="range" id="sl-jaxdays" min="0" max="29" step="1" value="29">
+    <span class="calc-val" id="out-jaxdays">29</span>
   </div>
   <hr class="calc-divider">
   <div class="calc-results">
@@ -75,6 +84,7 @@ root.innerHTML = `
   </div>
   <p class="calc-note" id="calc-note"></p>
   <p class="calc-note">Sellback shown is taxable income, paid as a lump sum at separation, at the standard rate of annual base pay ÷ 360 (<span class="mono">${fmt(DAILY_SELLBACK_RATE)}</span>/day). Lifetime sellback cap is 60 days — check your running total with your admin before counting on a full payout.</p>
+  <p class="calc-note">September is modeled as a CZTE-qualifying departure month (tax-free base pay, no COLA/HDP/IDP, plus per diem). October in Option 3 is a full calendar month entirely absent from Bahrain, so it's taxed normally. Confirm the departure-month provision with your finance office — it's documented for the Air Force and Army, and should apply service-wide, but isn't yet confirmed against your specific orders.</p>
 `;
 
 const slSellback = document.getElementById('sl-sellback');
@@ -90,8 +100,8 @@ function update() {
   const sellbackValue = sellDays * DAILY_SELLBACK_RATE;
 
   const opt1 = BAHRAIN_NET * 3 + sellbackValue;
-  const opt2 = BAHRAIN_NET * 3 + jaxMonthNet(jaxDays) + sellbackValue;
-  const opt3 = BAHRAIN_NET * 3 + jaxMonthNet(jaxDays) + NC_NET_FULL_MONTH + sellbackValue;
+  const opt2 = BAHRAIN_NET * 3 + departureMonthNet(jaxDays) + sellbackValue;
+  const opt3 = BAHRAIN_NET * 3 + departureMonthNet(jaxDays) + NC_NET_FULL_MONTH + sellbackValue;
 
   document.getElementById('res-1').textContent = fmt(opt1);
   document.getElementById('res-2').textContent = fmt(opt2);
@@ -115,3 +125,4 @@ function update() {
 slSellback.addEventListener('input', update);
 slJaxdays.addEventListener('input', update);
 update();
+
